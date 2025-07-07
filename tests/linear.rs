@@ -99,3 +99,20 @@ fn linear_final_rate() {
 
     insta::assert_snapshot!(parameters.final_rate().value(), @"10.000000000000004");
 }
+
+#[test]
+fn prevent_negative_rates() {
+    // Use a long duration that would cause the rate to become negative at some point. This should
+    // return an error because negative rates aren't allowed.
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.2).into();
+    let incremental_duration = AverageDaysTime { days: 10_000. };
+
+    let parameters = LinearParameters::from_incremental_duration(
+        initial_rate,
+        decline_rate,
+        incremental_duration,
+    );
+
+    assert!(matches!(parameters, Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)));
+}

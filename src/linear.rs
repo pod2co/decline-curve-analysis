@@ -30,11 +30,19 @@ impl<Time: DeclineTimeUnit> LinearParameters<Time> {
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
-        Ok(Self {
+        let result = Self {
             initial_rate,
             decline_rate,
             incremental_duration,
-        })
+        };
+
+        let final_rate = result.rate_at_time_without_clamping(incremental_duration);
+
+        if final_rate.value <= 0. {
+            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+        }
+
+        Ok(result)
     }
 
     pub fn from_incremental_volume(
