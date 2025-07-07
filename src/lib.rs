@@ -18,7 +18,7 @@ pub use hyperbolic::*;
 pub use linear::*;
 
 /// An error type for invalid parameters.
-#[derive(Error, Debug)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum DeclineCurveAnalysisError {
     #[error("decline rate too high")]
     DeclineRateTooHigh,
