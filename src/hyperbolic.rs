@@ -1,4 +1,7 @@
-use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, NominalDeclineRate, ProductionRate};
+use crate::{
+    DeclineCurveAnalysisError, DeclineRateSignValidation, DeclineTimeUnit, NominalDeclineRate,
+    ProductionRate, validate_decline_rate_sign,
+};
 
 /// A hyperbolic decline segment.
 ///
@@ -87,17 +90,32 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         final_decline_rate: NominalDeclineRate<Time>,
         exponent: f64,
     ) -> Result<Self, DeclineCurveAnalysisError> {
+        let initial_decline_rate_value = initial_decline_rate.value();
+        let final_decline_rate_value = final_decline_rate.value();
+
         if initial_rate.value <= 0.
-            || initial_decline_rate.value() == 0.
-            || final_decline_rate.value() == 0.
+            || initial_decline_rate_value == 0.
+            || final_decline_rate_value == 0.
             || exponent == 0.
             || exponent == 1.
+            || initial_decline_rate_value.is_sign_positive()
+                != final_decline_rate_value.is_sign_positive()
         {
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
-        let incremental_duration = (initial_decline_rate.value() / final_decline_rate.value() - 1.)
-            / (exponent * initial_decline_rate.value());
+        if exponent > 0. {
+            if final_decline_rate_value > initial_decline_rate_value {
+                return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+            }
+        } else {
+            if final_decline_rate_value < initial_decline_rate_value {
+                return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+            }
+        }
+
+        let incremental_duration = (initial_decline_rate_value / final_decline_rate_value - 1.)
+            / (exponent * initial_decline_rate_value);
 
         Ok(Self {
             initial_rate,
@@ -113,8 +131,10 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         final_rate: ProductionRate<Time>,
         exponent: f64,
     ) -> Result<Self, DeclineCurveAnalysisError> {
+        let initial_decline_rate_value = initial_decline_rate.value();
+
         if initial_rate.value <= 0.
-            || initial_decline_rate.value() == 0.
+            || initial_decline_rate_value == 0.
             || final_rate.value <= 0.
             || exponent == 0.
             || exponent == 1.
@@ -122,8 +142,24 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
+        match validate_decline_rate_sign(
+            initial_decline_rate_value,
+            initial_rate.value,
+            final_rate.value,
+        )? {
+            DeclineRateSignValidation::Continue => {}
+            DeclineRateSignValidation::ZeroDuration => {
+                return Ok(Self {
+                    initial_rate,
+                    initial_decline_rate,
+                    incremental_duration: Time::from(0.),
+                    exponent,
+                });
+            }
+        }
+
         let incremental_duration = ((initial_rate.value / final_rate.value).powf(exponent) - 1.)
-            / (exponent * initial_decline_rate.value());
+            / (exponent * initial_decline_rate_value);
 
         Ok(Self {
             initial_rate,

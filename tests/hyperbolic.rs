@@ -140,3 +140,72 @@ fn hyperbolic_incline() {
     insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"187066.8962759463");
     insta::assert_snapshot!(parameters.final_rate().value(), @"52.50444884947007");
 }
+
+#[test]
+fn hyperbolic_decline_rate_wrong_sign() {
+    // Incline with a negative decline rate.
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let final_rate = ProductionRate::<AverageDaysTime>::new(60.);
+
+    let parameters =
+        HyperbolicParameters::from_final_rate(initial_rate, initial_decline_rate, final_rate, 0.9);
+
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::DeclineRateWrongSign)
+    ));
+}
+
+#[test]
+fn hyperbolic_final_decline_rate_impossible() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+
+    // Positive decline rate inclining with positive exponent.
+    let parameters = HyperbolicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(0.5).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(0.6).into(),
+        0.9,
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+
+    // Positive decline rate declining with negative exponent.
+    let parameters = HyperbolicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(0.5).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(0.4).into(),
+        -0.9,
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+
+    // Positive initial decline rate with negative final decline rate.
+    let parameters = HyperbolicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(0.1).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(-0.1).into(),
+        0.9,
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+
+    // Negative initial decline rate with positive final decline rate.
+    let parameters = HyperbolicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(-0.1).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(0.1).into(),
+        0.9,
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+}

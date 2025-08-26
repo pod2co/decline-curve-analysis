@@ -1,4 +1,7 @@
-use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, NominalDeclineRate, ProductionRate};
+use crate::{
+    DeclineCurveAnalysisError, DeclineRateSignValidation, DeclineTimeUnit, NominalDeclineRate,
+    ProductionRate, validate_decline_rate_sign,
+};
 
 /// An exponential decline segment that represents a decline with a constant nominal decline rate.
 ///
@@ -67,12 +70,26 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         final_rate: ProductionRate<Time>,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0. || decline_rate.value() == 0. || final_rate.value <= 0. {
+        let decline_rate_value = decline_rate.value();
+
+        if initial_rate.value <= 0. || decline_rate_value == 0. || final_rate.value <= 0. {
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
+        match validate_decline_rate_sign(decline_rate_value, initial_rate.value, final_rate.value)?
+        {
+            DeclineRateSignValidation::Continue => {}
+            DeclineRateSignValidation::ZeroDuration => {
+                return Ok(Self {
+                    initial_rate,
+                    decline_rate,
+                    incremental_duration: Time::from(0.),
+                });
+            }
+        }
+
         let incremental_duration =
-            (initial_rate.value / final_rate.value).ln() / decline_rate.value();
+            (initial_rate.value / final_rate.value).ln() / decline_rate_value;
 
         Ok(Self {
             initial_rate,
