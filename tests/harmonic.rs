@@ -124,3 +124,57 @@ fn harmonic_incline() {
     insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"187217.18117312618");
     insta::assert_snapshot!(parameters.final_rate().value(), @"52.62968299711815");
 }
+
+#[test]
+fn harmonic_decline_rate_wrong_sign() {
+    // Incline with a negative decline rate.
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let final_rate = ProductionRate::<AverageDaysTime>::new(60.);
+
+    let parameters =
+        HarmonicParameters::from_final_rate(initial_rate, initial_decline_rate, final_rate);
+
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::DeclineRateWrongSign)
+    ));
+}
+
+#[test]
+fn harmonic_final_decline_rate_impossible() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+
+    // Positive decline rate inclining.
+    let parameters = HarmonicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(0.5).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(0.6).into(),
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+
+    // Positive initial decline rate with negative final decline rate.
+    let parameters = HarmonicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(0.1).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(-0.1).into(),
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+
+    // Negative initial decline rate with positive final decline rate.
+    let parameters = HarmonicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(-0.1).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(0.1).into(),
+    );
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
+}

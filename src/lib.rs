@@ -22,6 +22,8 @@ pub use linear::*;
 pub enum DeclineCurveAnalysisError {
     #[error("decline rate too high")]
     DeclineRateTooHigh,
+    #[error("decline rate has wrong sign")]
+    DeclineRateWrongSign,
     #[error("cannot solve decline")]
     CannotSolveDecline,
 }
@@ -56,4 +58,31 @@ impl Into<ProductionRate<AverageYearsTime>> for ProductionRate<AverageDaysTime> 
     fn into(self) -> ProductionRate<AverageYearsTime> {
         ProductionRate::new(self.value * AverageYearsTime::LENGTH / AverageDaysTime::LENGTH)
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeclineRateSignValidation {
+    Continue,
+    ZeroDuration,
+}
+
+fn validate_decline_rate_sign(
+    decline_rate: f64,
+    initial_rate: f64,
+    final_rate: f64,
+) -> Result<DeclineRateSignValidation, DeclineCurveAnalysisError> {
+    if initial_rate < final_rate {
+        if decline_rate > 0. {
+            return Err(DeclineCurveAnalysisError::DeclineRateWrongSign);
+        }
+    } else if initial_rate > final_rate {
+        if decline_rate < 0. {
+            return Err(DeclineCurveAnalysisError::DeclineRateWrongSign);
+        }
+    } else {
+        // If the rates are equal, the duration is zero.
+        return Ok(DeclineRateSignValidation::ZeroDuration);
+    }
+
+    Ok(DeclineRateSignValidation::Continue)
 }

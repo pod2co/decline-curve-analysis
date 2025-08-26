@@ -106,3 +106,19 @@ fn exponential_incline() {
     insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"5365745.699923456");
     insta::assert_snapshot!(parameters.final_rate().value(), @"7395.30554404306");
 }
+
+#[test]
+fn exponential_decline_rate_wrong_sign() {
+    // Incline with a negative decline rate.
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let final_rate = ProductionRate::<AverageDaysTime>::new(60.);
+
+    let parameters =
+        ExponentialParameters::from_final_rate(initial_rate, initial_decline_rate, final_rate);
+
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::DeclineRateWrongSign)
+    ));
+}

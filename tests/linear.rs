@@ -114,5 +114,8 @@ fn prevent_negative_rates() {
         incremental_duration,
     );
 
-    assert!(matches!(parameters, Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)));
+    assert!(matches!(
+        parameters,
+        Err(decline_curve_analysis::DeclineCurveAnalysisError::CannotSolveDecline)
+    ));
 }
