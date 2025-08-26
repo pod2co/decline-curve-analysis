@@ -1,6 +1,6 @@
 [package]
 name = "decline-curve-analysis"
-version = "0.2.1"
+version = "0.3.0"
 description = "Utilities for decline curve analysis (e.g., Arps equations)"
 authors = ["Joshua Groves <josh@joshgroves.com>"]
 repository = "https://github.com/pod2co/decline-curve-analysis"
