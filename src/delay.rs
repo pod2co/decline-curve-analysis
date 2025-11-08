@@ -2,7 +2,7 @@ use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, ProductionRate};
 
 /// A no-op delay segment that represents a delay with no volume. It can be useful to represent an
 /// arbitrary delay in forecasts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DelayParameters<Time: DeclineTimeUnit> {
     incremental_duration: Time,
 }

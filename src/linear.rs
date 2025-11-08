@@ -1,7 +1,7 @@
 use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, NominalDeclineRate, ProductionRate};
 
 /// A linear decline segment.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LinearParameters<Time: DeclineTimeUnit> {
     initial_rate: ProductionRate<Time>,
     decline_rate: NominalDeclineRate<Time>,

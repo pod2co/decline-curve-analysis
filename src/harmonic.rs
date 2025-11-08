@@ -6,7 +6,7 @@ use crate::{
 /// A harmonic decline segment.
 ///
 /// This is derived from the Arps equation for the case when the exponent is 1.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HarmonicParameters<Time: DeclineTimeUnit> {
     initial_rate: ProductionRate<Time>,
     initial_decline_rate: NominalDeclineRate<Time>,

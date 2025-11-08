@@ -6,7 +6,7 @@ use crate::{
 /// An exponential decline segment that represents a decline with a constant nominal decline rate.
 ///
 /// This is derived from the Arps equation for the case when the exponent is 0.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExponentialParameters<Time: DeclineTimeUnit> {
     initial_rate: ProductionRate<Time>,
     decline_rate: NominalDeclineRate<Time>,
