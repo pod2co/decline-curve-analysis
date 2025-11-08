@@ -6,7 +6,7 @@ use crate::{
 /// A hyperbolic decline segment.
 ///
 /// This is derived from the Arps equation when the exponent is not equal to 0 or 1.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HyperbolicParameters<Time: DeclineTimeUnit> {
     initial_rate: ProductionRate<Time>,
     initial_decline_rate: NominalDeclineRate<Time>,

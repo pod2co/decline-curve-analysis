@@ -1,7 +1,7 @@
 use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, ProductionRate};
 
 /// A flat segment that represents a constant production rate.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlatParameters<Time: DeclineTimeUnit> {
     rate: ProductionRate<Time>,
     incremental_duration: Time,
