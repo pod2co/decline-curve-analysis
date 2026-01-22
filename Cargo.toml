@@ -8,13 +8,13 @@ license = "MIT OR Apache-2.0"
 edition = "2024"
 
 [dependencies]
-insta = { version = "1.43", features = ["ron"] }
 thiserror = "2"
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.4"
+insta = { version = "1.43", features = ["ron"] }
 
 [[bench]]
 name = "simple"
