@@ -1,4 +1,8 @@
-use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, NominalDeclineRate, ProductionRate};
+use crate::{
+    DeclineCurveAnalysisError, DeclineTimeUnit, NominalDeclineRate, ProductionRate, approx_eq,
+    is_effectively_zero, validate_duration, validate_incremental_volume,
+    validate_non_zero_decline_rate, validate_non_zero_positive_rate,
+};
 
 /// A linear decline segment.
 #[derive(Debug, Clone, PartialEq)]
@@ -26,9 +30,9 @@ impl<Time: DeclineTimeUnit> LinearParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         incremental_duration: Time,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0. || incremental_duration.value() < 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(decline_rate.value(), "decline rate")?;
+        validate_duration(incremental_duration)?;
 
         let result = Self {
             initial_rate,
@@ -37,10 +41,7 @@ impl<Time: DeclineTimeUnit> LinearParameters<Time> {
         };
 
         let final_rate = result.rate_at_time_without_clamping(incremental_duration);
-
-        if final_rate.value <= 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
 
         Ok(result)
     }
@@ -50,8 +51,16 @@ impl<Time: DeclineTimeUnit> LinearParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         incremental_volume: f64,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0. || incremental_volume < 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(decline_rate.value(), "decline rate")?;
+        validate_incremental_volume(incremental_volume)?;
+
+        if is_effectively_zero(incremental_volume) {
+            return Ok(Self {
+                initial_rate,
+                decline_rate,
+                incremental_duration: Time::from(0.),
+            });
         }
 
         // Solve quadratic equation for incremental duration.
@@ -68,12 +77,13 @@ impl<Time: DeclineTimeUnit> LinearParameters<Time> {
         // Only take the positive root. The negative root would be the time at which the rate
         // becomes negative and causes the cumulative volume to be reached again, but that's not a
         // valid solution for this case.
-        let incremental_duration = (-b + discriminant.sqrt()) / (2. * a);
+        let incremental_duration = Time::from((-b + discriminant.sqrt()) / (2. * a));
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 
@@ -82,22 +92,30 @@ impl<Time: DeclineTimeUnit> LinearParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         final_rate: ProductionRate<Time>,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0. || final_rate.value <= 0. {
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(decline_rate.value(), "decline rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
+
+        if is_effectively_zero(decline_rate.value()) {
+            if approx_eq(initial_rate.value, final_rate.value) {
+                return Ok(Self {
+                    initial_rate,
+                    decline_rate,
+                    incremental_duration: Time::from(0.),
+                });
+            }
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
-        let denom = initial_rate.value * decline_rate.value();
-
-        if denom == 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
-
-        let incremental_duration = (initial_rate.value - final_rate.value) / denom;
+        let incremental_duration = Time::from(
+            (initial_rate.value - final_rate.value) / (initial_rate.value * decline_rate.value()),
+        );
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 

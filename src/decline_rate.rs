@@ -78,7 +78,7 @@ impl<Time: DeclineTimeUnit> NominalDeclineRate<Time> {
     }
 
     pub fn to_secant_effective(
-        &self,
+        self,
         exponent: f64,
     ) -> Result<SecantEffectiveDeclineRate<Time>, DeclineCurveAnalysisError> {
         if exponent == 0. {
@@ -95,14 +95,14 @@ impl<Time: DeclineTimeUnit> NominalDeclineRate<Time> {
     }
 
     pub fn to_tangent_effective(
-        &self,
+        self,
     ) -> Result<TangentEffectiveDeclineRate<Time>, DeclineCurveAnalysisError> {
         let tangent_effective = 1. - (-self.value).exp();
 
         Ok(TangentEffectiveDeclineRate::new(tangent_effective))
     }
 
-    fn to_time<ToTimeUnit: DeclineTimeUnit>(&self) -> NominalDeclineRate<ToTimeUnit> {
+    fn to_time<ToTimeUnit: DeclineTimeUnit>(self) -> NominalDeclineRate<ToTimeUnit> {
         NominalDeclineRate {
             value: (self.value * ToTimeUnit::LENGTH) / Time::LENGTH,
             _time: PhantomData,
@@ -142,7 +142,7 @@ impl<Time: DeclineTimeUnit> SecantEffectiveDeclineRate<Time> {
     }
 
     fn to_nominal_inner(
-        &self,
+        self,
         exponent: f64,
     ) -> Result<NominalDeclineRate<Time>, DeclineCurveAnalysisError> {
         if self.value >= 1. {
@@ -155,7 +155,7 @@ impl<Time: DeclineTimeUnit> SecantEffectiveDeclineRate<Time> {
     }
 
     pub fn to_nominal(
-        &self,
+        self,
         exponent: f64,
     ) -> Result<NominalDeclineRate<Time>, DeclineCurveAnalysisError> {
         if exponent == 0. {
@@ -168,7 +168,7 @@ impl<Time: DeclineTimeUnit> SecantEffectiveDeclineRate<Time> {
     }
 
     pub fn to_tangent_effective(
-        &self,
+        self,
         exponent: f64,
     ) -> Result<TangentEffectiveDeclineRate<Time>, DeclineCurveAnalysisError> {
         if exponent == 0. {
@@ -200,7 +200,7 @@ impl<Time: DeclineTimeUnit> TangentEffectiveDeclineRate<Time> {
         self.value
     }
 
-    fn to_nominal_inner(&self) -> Result<NominalDeclineRate<Time>, DeclineCurveAnalysisError> {
+    fn to_nominal_inner(self) -> Result<NominalDeclineRate<Time>, DeclineCurveAnalysisError> {
         if self.value >= 1. {
             return Err(DeclineCurveAnalysisError::DeclineRateTooHigh);
         }
@@ -208,12 +208,12 @@ impl<Time: DeclineTimeUnit> TangentEffectiveDeclineRate<Time> {
         Ok(NominalDeclineRate::new(-(-self.value).ln_1p()))
     }
 
-    pub fn to_nominal(&self) -> Result<NominalDeclineRate<Time>, DeclineCurveAnalysisError> {
+    pub fn to_nominal(self) -> Result<NominalDeclineRate<Time>, DeclineCurveAnalysisError> {
         self.to_nominal_inner()
     }
 
     pub fn to_secant_effective(
-        &self,
+        self,
         exponent: f64,
     ) -> Result<SecantEffectiveDeclineRate<Time>, DeclineCurveAnalysisError> {
         if exponent == 0. {
