@@ -1,7 +1,24 @@
 use crate::{
     DeclineCurveAnalysisError, DeclineRateSignValidation, DeclineTimeUnit, NominalDeclineRate,
-    ProductionRate, validate_decline_rate_sign,
+    ProductionRate, validate_decline_rate_sign, validate_duration, validate_incremental_volume,
+    validate_non_zero_decline_rate, validate_non_zero_positive_rate,
 };
+
+/// For harmonic inclines (negative decline rate), validates that the duration
+/// does not reach or exceed the singularity at t_max = 1/|D|.
+fn validate_harmonic_singularity<Time: DeclineTimeUnit>(
+    decline_rate: NominalDeclineRate<Time>,
+    duration: Time,
+) -> Result<(), DeclineCurveAnalysisError> {
+    let d = decline_rate.value();
+    if d < 0. {
+        let t_max = -1. / d;
+        if duration.value() >= t_max {
+            return Err(DeclineCurveAnalysisError::DurationTooLong);
+        }
+    }
+    Ok(())
+}
 
 /// A harmonic decline segment.
 ///
@@ -31,12 +48,10 @@ impl<Time: DeclineTimeUnit> HarmonicParameters<Time> {
         initial_decline_rate: NominalDeclineRate<Time>,
         incremental_duration: Time,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0.
-            || initial_decline_rate.value() == 0.
-            || incremental_duration.value() < 0.
-        {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(initial_decline_rate.value(), "initial decline rate")?;
+        validate_duration(incremental_duration)?;
+        validate_harmonic_singularity(initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -50,19 +65,22 @@ impl<Time: DeclineTimeUnit> HarmonicParameters<Time> {
         initial_decline_rate: NominalDeclineRate<Time>,
         incremental_volume: f64,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0. || initial_decline_rate.value() == 0. || incremental_volume < 0.
-        {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(initial_decline_rate.value(), "initial decline rate")?;
+        validate_incremental_volume(incremental_volume)?;
 
-        let incremental_duration =
+        let incremental_duration = Time::from(
             (((incremental_volume * initial_decline_rate.value()) / initial_rate.value).exp_m1())
-                / initial_decline_rate.value();
+                / initial_decline_rate.value(),
+        );
+        validate_duration(incremental_duration)?;
+
+        validate_harmonic_singularity(initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             initial_decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 
@@ -71,28 +89,29 @@ impl<Time: DeclineTimeUnit> HarmonicParameters<Time> {
         initial_decline_rate: NominalDeclineRate<Time>,
         final_decline_rate: NominalDeclineRate<Time>,
     ) -> Result<Self, DeclineCurveAnalysisError> {
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(initial_decline_rate.value(), "initial decline rate")?;
+        validate_non_zero_decline_rate(final_decline_rate.value(), "final decline rate")?;
+
         let initial_decline_rate_value = initial_decline_rate.value();
         let final_decline_rate_value = final_decline_rate.value();
 
-        if initial_rate.value <= 0.
-            || initial_decline_rate_value == 0.
-            || final_decline_rate_value == 0.
-            || initial_decline_rate_value.is_sign_positive()
-                != final_decline_rate_value.is_sign_positive()
+        if initial_decline_rate_value.is_sign_positive()
+            != final_decline_rate_value.is_sign_positive()
         {
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
-        if final_decline_rate_value > initial_decline_rate_value {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        let incremental_duration =
+            Time::from(1. / final_decline_rate_value - 1. / initial_decline_rate_value);
+        validate_duration(incremental_duration)?;
 
-        let incremental_duration = 1. / final_decline_rate_value - 1. / initial_decline_rate_value;
+        validate_harmonic_singularity(initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             initial_decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 
@@ -101,14 +120,12 @@ impl<Time: DeclineTimeUnit> HarmonicParameters<Time> {
         initial_decline_rate: NominalDeclineRate<Time>,
         final_rate: ProductionRate<Time>,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        let initial_decline_rate_value = initial_decline_rate.value();
-
-        if initial_rate.value <= 0. || initial_decline_rate_value == 0. || final_rate.value <= 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(initial_decline_rate.value(), "initial decline rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
 
         match validate_decline_rate_sign(
-            initial_decline_rate_value,
+            initial_decline_rate.value(),
             initial_rate.value,
             final_rate.value,
         )? {
@@ -122,13 +139,18 @@ impl<Time: DeclineTimeUnit> HarmonicParameters<Time> {
             }
         }
 
-        let incremental_duration = (initial_rate.value - final_rate.value)
-            / (initial_decline_rate_value * final_rate.value);
+        let incremental_duration = Time::from(
+            (initial_rate.value - final_rate.value)
+                / (initial_decline_rate.value() * final_rate.value),
+        );
+        validate_duration(incremental_duration)?;
+
+        validate_harmonic_singularity(initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             initial_decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 

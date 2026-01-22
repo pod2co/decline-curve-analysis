@@ -1,6 +1,7 @@
 use crate::{
     DeclineCurveAnalysisError, DeclineRateSignValidation, DeclineTimeUnit, NominalDeclineRate,
-    ProductionRate, validate_decline_rate_sign,
+    ProductionRate, approx_gte, validate_decline_rate_sign, validate_duration,
+    validate_incremental_volume, validate_non_zero_decline_rate, validate_non_zero_positive_rate,
 };
 
 /// An exponential decline segment that represents a decline with a constant nominal decline rate.
@@ -31,12 +32,9 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         incremental_duration: Time,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0.
-            || decline_rate.value() == 0.
-            || incremental_duration.value() < 0.
-        {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(decline_rate.value(), "decline rate")?;
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -50,18 +48,35 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         incremental_volume: f64,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if initial_rate.value <= 0. || decline_rate.value() == 0. || incremental_volume < 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(decline_rate.value(), "decline rate")?;
+        validate_incremental_volume(incremental_volume)?;
+
+        // For exponential declines with a positive decline rate, the maximum volume possible
+        // (as time approaches infinity) is given by:
+        //
+        //   q_i / d
+        //
+        // If the incremental volume is greater or equal to this, then we can't solve the decline.
+        //
+        // For negative decline rates, there is no maximum volume.
+        if decline_rate.value() > 0. {
+            let max_volume = initial_rate.value / decline_rate.value();
+            if approx_gte(incremental_volume, max_volume) {
+                return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+            }
         }
 
-        let incremental_duration =
+        let incremental_duration = Time::from(
             -((-incremental_volume * decline_rate.value()) / initial_rate.value).ln_1p()
-                / decline_rate.value();
+                / decline_rate.value(),
+        );
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 
@@ -70,14 +85,15 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
         decline_rate: NominalDeclineRate<Time>,
         final_rate: ProductionRate<Time>,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        let decline_rate_value = decline_rate.value();
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_decline_rate(decline_rate.value(), "decline rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
 
-        if initial_rate.value <= 0. || decline_rate_value == 0. || final_rate.value <= 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
-
-        match validate_decline_rate_sign(decline_rate_value, initial_rate.value, final_rate.value)?
-        {
+        match validate_decline_rate_sign(
+            decline_rate.value(),
+            initial_rate.value,
+            final_rate.value,
+        )? {
             DeclineRateSignValidation::Continue => {}
             DeclineRateSignValidation::ZeroDuration => {
                 return Ok(Self {
@@ -89,12 +105,13 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
         }
 
         let incremental_duration =
-            (initial_rate.value / final_rate.value).ln() / decline_rate_value;
+            Time::from((initial_rate.value / final_rate.value).ln() / decline_rate.value());
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             decline_rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 

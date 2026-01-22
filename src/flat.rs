@@ -1,4 +1,7 @@
-use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, ProductionRate};
+use crate::{
+    DeclineCurveAnalysisError, DeclineTimeUnit, ProductionRate, is_effectively_zero,
+    validate_duration, validate_incremental_volume, validate_positive,
+};
 
 /// A flat segment that represents a constant production rate.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,9 +23,8 @@ impl<Time: DeclineTimeUnit> FlatParameters<Time> {
         rate: ProductionRate<Time>,
         incremental_duration: Time,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if rate.value < 0. || incremental_duration.value() < 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_positive(rate.value, "rate")?;
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             rate,
@@ -34,15 +36,26 @@ impl<Time: DeclineTimeUnit> FlatParameters<Time> {
         rate: ProductionRate<Time>,
         incremental_volume: f64,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if rate.value < 0. || incremental_volume < 0. {
+        validate_positive(rate.value, "rate")?;
+        validate_incremental_volume(incremental_volume)?;
+
+        if is_effectively_zero(incremental_volume) {
+            return Ok(Self {
+                rate,
+                incremental_duration: Time::from(0.),
+            });
+        }
+
+        if is_effectively_zero(rate.value) {
             return Err(DeclineCurveAnalysisError::CannotSolveDecline);
         }
 
-        let incremental_duration = incremental_volume / rate.value;
+        let incremental_duration = Time::from(incremental_volume / rate.value);
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             rate,
-            incremental_duration: Time::from(incremental_duration),
+            incremental_duration,
         })
     }
 

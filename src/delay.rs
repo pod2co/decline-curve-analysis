@@ -1,4 +1,4 @@
-use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, ProductionRate};
+use crate::{DeclineCurveAnalysisError, DeclineTimeUnit, ProductionRate, validate_duration};
 
 /// A no-op delay segment that represents a delay with no volume. It can be useful to represent an
 /// arbitrary delay in forecasts.
@@ -21,9 +21,7 @@ impl<Time: DeclineTimeUnit> DelayParameters<Time> {
     pub fn from_incremental_duration(
         incremental_duration: Time,
     ) -> Result<Self, DeclineCurveAnalysisError> {
-        if incremental_duration.value() < 0. {
-            return Err(DeclineCurveAnalysisError::CannotSolveDecline);
-        }
+        validate_duration(incremental_duration)?;
 
         Ok(Self {
             incremental_duration,
