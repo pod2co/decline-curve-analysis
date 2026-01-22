@@ -107,7 +107,7 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         let one_minus_exponent = 1. - exponent;
 
         // For hyperbolic declines with a positive decline rate, and 0 < exponent < 1, the maximum
-        // maximum volume possible (as time approaches infinity) is given by:
+        // volume possible (as time approaches infinity) is given by:
         //
         //   q_i / ((1 - b) * d)
         //
