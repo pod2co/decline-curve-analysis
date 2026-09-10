@@ -1,5 +1,7 @@
 # Decline Curve Analysis
 
+[![CI](https://github.com/pod2co/decline-curve-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/pod2co/decline-curve-analysis/actions/workflows/ci.yml)
+
 Utilities for decline curve analysis (e.g., Arps equations).
 
 ## License

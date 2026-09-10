@@ -27,7 +27,7 @@ fn hyperbolic(c: &mut Criterion) {
     group.bench_with_input(
         BenchmarkId::new("Daily", "Incremental Volume"),
         &parameters,
-        |b, p| b.iter(|| black_box(every_day(p))),
+        |b, p| b.iter(|| every_day(p)),
     );
 
     group.finish();
