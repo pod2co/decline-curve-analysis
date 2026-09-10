@@ -3,6 +3,9 @@ use decline_curve_analysis::{
 };
 use proptest::prelude::*;
 
+mod common;
+use common::assert_solved;
+
 #[test]
 fn harmonic_from_incremental_duration() {
     let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
@@ -143,13 +146,13 @@ fn harmonic_decline_rate_wrong_sign() {
 fn harmonic_final_decline_rate_impossible() {
     let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
 
-    // Positive decline rate inclining.
+    // A harmonic decline rate only ever falls, so a larger final one is behind us.
     let parameters = HarmonicParameters::from_final_decline_rate(
         initial_rate,
         NominalDeclineRate::<AverageYearsTime>::new(0.5).into(),
         NominalDeclineRate::<AverageYearsTime>::new(0.6).into(),
     );
-    insta::assert_snapshot!(parameters.unwrap_err(), @"duration is negative, but expected a positive number");
+    insta::assert_snapshot!(parameters.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
 
     // Positive initial decline rate with negative final decline rate.
     let parameters = HarmonicParameters::from_final_decline_rate(
@@ -191,7 +194,7 @@ fn incline_from_final_decline_rate() {
         initial_decline_rate,
         final_decline_rate,
     );
-    insta::assert_snapshot!(result.unwrap_err(), @"duration is negative, but expected a positive number");
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
 }
 
 #[test]
@@ -346,6 +349,138 @@ fn duration_range() {
     insta::assert_snapshot!(params.final_rate().value(), @"10000.00000000009");
 }
 
+#[test]
+fn harmonic_from_incremental_duration_and_final_rate() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+
+    let reference = HarmonicParameters::from_incremental_duration(
+        initial_rate,
+        initial_decline_rate,
+        incremental_duration,
+    )
+    .unwrap();
+
+    let solved = HarmonicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        reference.final_rate(),
+    )
+    .unwrap();
+
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+    assert_solved(solved.final_rate().value(), reference.final_rate().value());
+}
+
+#[test]
+fn harmonic_from_final_rate_and_incremental_volume() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+
+    let reference = HarmonicParameters::from_incremental_duration(
+        initial_rate,
+        initial_decline_rate,
+        incremental_duration,
+    )
+    .unwrap();
+
+    let solved = HarmonicParameters::from_final_rate_and_incremental_volume(
+        initial_rate,
+        reference.final_rate(),
+        reference.incremental_volume(),
+    )
+    .unwrap();
+
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+    assert_solved(
+        solved.incremental_duration().days,
+        reference.incremental_duration().days,
+    );
+    assert_solved(solved.final_rate().value(), reference.final_rate().value());
+    assert_solved(solved.incremental_volume(), reference.incremental_volume());
+}
+
+#[test]
+fn harmonic_solving_an_incline_keeps_the_sign() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let incline_rate = NominalDeclineRate::<AverageYearsTime>::new(-0.2).into();
+    // A harmonic incline has a singularity at `1 / |d|`.
+    let incremental_duration = AverageDaysTime { days: 2. * 365. };
+
+    let reference = HarmonicParameters::from_incremental_duration(
+        initial_rate,
+        incline_rate,
+        incremental_duration,
+    )
+    .unwrap();
+
+    let solved = HarmonicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        reference.final_rate(),
+    )
+    .unwrap();
+
+    assert!(solved.initial_decline_rate().value() < 0.);
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+}
+
+#[test]
+fn harmonic_solving_rejects_cutoffs_that_imply_no_decline() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+
+    let result = HarmonicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        initial_rate,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+
+    let result = HarmonicParameters::from_final_rate_and_incremental_volume(
+        initial_rate,
+        ProductionRate::<AverageDaysTime>::new(10.),
+        1e300,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+
+    // The rate ratio overflows to infinity.
+    let result = HarmonicParameters::from_incremental_duration_and_final_rate(
+        ProductionRate::<AverageDaysTime>::new(1e300),
+        incremental_duration,
+        ProductionRate::<AverageDaysTime>::new(1e-11),
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+}
+
+#[test]
+fn harmonic_solving_rejects_degenerate_cutoffs() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let final_rate = ProductionRate::<AverageDaysTime>::new(10.);
+
+    let result = HarmonicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        AverageDaysTime { days: 0. },
+        final_rate,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"duration is approximately zero, but expected it to be non-zero");
+
+    let result =
+        HarmonicParameters::from_final_rate_and_incremental_volume(initial_rate, final_rate, 0.);
+    insta::assert_snapshot!(result.unwrap_err(), @"incremental volume is approximately zero, but expected it to be non-zero");
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
 
@@ -428,4 +563,94 @@ proptest! {
         }
     }
 
+    /// Nothing the solver returns may carry an infinity or a NaN out with it.
+    #[test]
+    fn from_incremental_duration_and_final_rate(
+        rate in prop::num::f64::ANY,
+        duration in prop::num::f64::ANY,
+        final_rate in prop::num::f64::ANY,
+    ) {
+        let initial_rate = ProductionRate::<AverageDaysTime>::new(rate);
+        let final_rate = ProductionRate::<AverageDaysTime>::new(final_rate);
+        let incremental_duration = AverageDaysTime { days: duration };
+        let result = HarmonicParameters::from_incremental_duration_and_final_rate(initial_rate, incremental_duration, final_rate);
+
+        if let Ok(params) = result {
+            let decline = params.initial_decline_rate().value();
+            prop_assert!(decline.is_finite(), "Decline rate should be finite, got {}", decline);
+            prop_assert!(decline != 0., "Decline rate should be non-zero");
+            let duration = params.incremental_duration().days;
+            prop_assert!(duration >= 0., "Duration should be non-negative, got {}", duration);
+            prop_assert!(duration.is_finite(), "Duration should be finite, got {}", duration);
+        }
+    }
+
+    #[test]
+    fn from_final_rate_and_incremental_volume(
+        rate in prop::num::f64::ANY,
+        final_rate in prop::num::f64::ANY,
+        volume in prop::num::f64::ANY,
+    ) {
+        let initial_rate = ProductionRate::<AverageDaysTime>::new(rate);
+        let final_rate = ProductionRate::<AverageDaysTime>::new(final_rate);
+        let result = HarmonicParameters::from_final_rate_and_incremental_volume(initial_rate, final_rate, volume);
+
+        if let Ok(params) = result {
+            let decline = params.initial_decline_rate().value();
+            prop_assert!(decline.is_finite(), "Decline rate should be finite, got {}", decline);
+            prop_assert!(decline != 0., "Decline rate should be non-zero");
+            let duration = params.incremental_duration().days;
+            prop_assert!(duration >= 0., "Duration should be non-negative, got {}", duration);
+            prop_assert!(duration.is_finite(), "Duration should be finite, got {}", duration);
+        }
+    }
+
+    #[test]
+    fn solving_round_trips_through_both_cutoffs(
+        rate in 1.0f64..1e5,
+        decline in prop_oneof![-1.0f64..-0.01, 0.01f64..1.0],
+        duration in 0.1f64..50.,
+        singularity_fraction in 0.01f64..0.95,
+        decline_span in 0.01f64..10.,
+    ) {
+        // Cap how far the segment declines, so the final rate stays above the validation floor.
+        let duration = (decline_span / decline.abs()).min(duration);
+
+        // Stay short of the singularity at `t_max = 1 / |d|`.
+        let duration = if decline < 0. {
+            (-singularity_fraction / decline).min(duration)
+        } else {
+            duration
+        };
+
+        let initial_rate = ProductionRate::<AverageYearsTime>::new(rate);
+        let decline_rate = NominalDeclineRate::<AverageYearsTime>::new(decline);
+        let incremental_duration = AverageYearsTime { years: duration };
+
+        let reference = HarmonicParameters::from_incremental_duration(
+            initial_rate,
+            decline_rate,
+            incremental_duration,
+        )
+        .unwrap();
+
+        let solved = HarmonicParameters::from_incremental_duration_and_final_rate(
+            initial_rate,
+            incremental_duration,
+            reference.final_rate(),
+        )
+        .unwrap();
+        assert_solved(solved.initial_decline_rate().value(), decline);
+        assert_solved(solved.final_rate().value(), reference.final_rate().value());
+
+        let solved = HarmonicParameters::from_final_rate_and_incremental_volume(
+            initial_rate,
+            reference.final_rate(),
+            reference.incremental_volume(),
+        )
+        .unwrap();
+        assert_solved(solved.initial_decline_rate().value(), decline);
+        assert_solved(solved.incremental_duration().years, duration);
+        assert_solved(solved.incremental_volume(), reference.incremental_volume());
+    }
 }
