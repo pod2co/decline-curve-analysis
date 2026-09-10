@@ -21,7 +21,7 @@ fn spee_conversion_examples() {
         7000., 8000., 9000., 10000.,
     ];
 
-    let exponents = vec![0., 0.5, 1., 1.5, 2.];
+    let exponents = [0., 0.5, 1., 1.5, 2.];
 
     // Generate all combinations then verify it with insta. Use `f32` for results so snapshots
     // don't depend on CPU-specific float handling in the least significant bits. We could use
