@@ -1,7 +1,9 @@
 use crate::{
     DeclineCurveAnalysisError, DeclineRateSignValidation, DeclineTimeUnit, NominalDeclineRate,
-    ProductionRate, approx_gte, validate_decline_rate_sign, validate_duration,
-    validate_incremental_volume, validate_non_zero_decline_rate, validate_non_zero_positive_rate,
+    ProductionRate, approx_gte, validate_decline_rate_sign, validate_derived_duration,
+    validate_duration, validate_incremental_volume, validate_non_zero_decline_rate,
+    validate_non_zero_derived_decline_rate, validate_non_zero_duration,
+    validate_non_zero_positive_rate, validate_non_zero_positive_volume,
 };
 
 /// An exponential decline segment that represents a decline with a constant nominal decline rate.
@@ -71,7 +73,7 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
             -((-incremental_volume * decline_rate.value()) / initial_rate.value).ln_1p()
                 / decline_rate.value(),
         );
-        validate_duration(incremental_duration)?;
+        let incremental_duration = validate_derived_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -106,13 +108,52 @@ impl<Time: DeclineTimeUnit> ExponentialParameters<Time> {
 
         let incremental_duration =
             Time::from((initial_rate.value / final_rate.value).ln() / decline_rate.value());
-        validate_duration(incremental_duration)?;
+        let incremental_duration = validate_derived_duration(incremental_duration)?;
 
         Ok(Self {
             initial_rate,
             decline_rate,
             incremental_duration,
         })
+    }
+
+    /// Builds a segment from a duration and a final rate, solving the decline rate that reaches
+    /// both at the same point.
+    pub fn from_incremental_duration_and_final_rate(
+        initial_rate: ProductionRate<Time>,
+        incremental_duration: Time,
+        final_rate: ProductionRate<Time>,
+    ) -> Result<Self, DeclineCurveAnalysisError> {
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
+        validate_non_zero_duration(incremental_duration)?;
+
+        // `q_f = q_i * exp(-d * t)`, rearranged for `d`.
+        let decline_rate = NominalDeclineRate::new(
+            (initial_rate.value / final_rate.value).ln() / incremental_duration.value(),
+        );
+        validate_non_zero_derived_decline_rate(decline_rate.value())?;
+
+        Self::from_incremental_duration(initial_rate, decline_rate, incremental_duration)
+    }
+
+    /// Builds a segment from a final rate and an incremental volume, solving the decline rate that
+    /// reaches both at the same point.
+    pub fn from_final_rate_and_incremental_volume(
+        initial_rate: ProductionRate<Time>,
+        final_rate: ProductionRate<Time>,
+        incremental_volume: f64,
+    ) -> Result<Self, DeclineCurveAnalysisError> {
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
+        validate_non_zero_positive_volume(incremental_volume)?;
+
+        // `n_p = (q_i - q_f) / d`, rearranged for `d`.
+        let decline_rate =
+            NominalDeclineRate::new((initial_rate.value - final_rate.value) / incremental_volume);
+        validate_non_zero_derived_decline_rate(decline_rate.value())?;
+
+        Self::from_final_rate(initial_rate, decline_rate, final_rate)
     }
 
     fn incremental_volume_at_time_without_clamping(&self, time: Time) -> f64 {

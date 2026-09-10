@@ -3,6 +3,9 @@ use decline_curve_analysis::{
 };
 use proptest::prelude::*;
 
+mod common;
+use common::assert_solved;
+
 #[test]
 fn hyperbolic_from_incremental_duration() {
     let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
@@ -167,14 +170,24 @@ fn hyperbolic_final_decline_rate_impossible() {
     );
     insta::assert_snapshot!(parameters.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
 
-    // Positive decline rate declining with negative exponent.
+    // A negative exponent makes the decline rate grow, so a smaller final one is never reached.
     let parameters = HyperbolicParameters::from_final_decline_rate(
         initial_rate,
         NominalDeclineRate::<AverageYearsTime>::new(0.5).into(),
         NominalDeclineRate::<AverageYearsTime>::new(0.4).into(),
         -0.9,
     );
-    insta::assert_snapshot!(parameters.unwrap_err(), @"decline rate has wrong sign");
+    insta::assert_snapshot!(parameters.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+
+    // The same pair the other way around is reachable.
+    let parameters = HyperbolicParameters::from_final_decline_rate(
+        initial_rate,
+        NominalDeclineRate::<AverageYearsTime>::new(0.4).into(),
+        NominalDeclineRate::<AverageYearsTime>::new(0.5).into(),
+        -0.9,
+    )
+    .unwrap();
+    insta::assert_snapshot!(parameters.incremental_duration().days, @"202.91666666666663");
 
     // Positive initial decline rate with negative final decline rate.
     let parameters = HyperbolicParameters::from_final_decline_rate(
@@ -185,14 +198,14 @@ fn hyperbolic_final_decline_rate_impossible() {
     );
     insta::assert_snapshot!(parameters.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
 
-    // Negative initial decline rate with positive final decline rate.
+    // A segment never crosses from inclining to declining.
     let parameters = HyperbolicParameters::from_final_decline_rate(
         initial_rate,
         NominalDeclineRate::<AverageYearsTime>::new(-0.1).into(),
         NominalDeclineRate::<AverageYearsTime>::new(0.1).into(),
         0.9,
     );
-    insta::assert_snapshot!(parameters.unwrap_err(), @"decline rate has wrong sign");
+    insta::assert_snapshot!(parameters.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
 }
 
 #[test]
@@ -240,6 +253,7 @@ fn exponent_greater_than_one() {
 
 #[test]
 fn negative_exponent() {
+    // The rate reaches zero at `t_max`, capping the volume at `100 / (1.5 * 0.1)`.
     let initial_rate = ProductionRate::<AverageYearsTime>::new(100.);
     let decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.1);
     let exponent = -0.5;
@@ -250,7 +264,19 @@ fn negative_exponent() {
         exceeding_volume,
         exponent,
     );
-    insta::assert_snapshot!(result.unwrap_err(), @"decline rate has wrong sign");
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+
+    let volume_under_the_cap = 500.;
+    let params = HyperbolicParameters::from_incremental_volume(
+        initial_rate,
+        decline_rate,
+        volume_under_the_cap,
+        exponent,
+    )
+    .unwrap();
+    // Short of `t_max`, which is 20 years for these parameters.
+    insta::assert_snapshot!(params.incremental_duration().years, @"7.400789501051268");
+    assert_solved(params.incremental_volume(), volume_under_the_cap);
 
     let initial_rate = ProductionRate::<AverageYearsTime>::new(100.);
     let decline_rate = NominalDeclineRate::<AverageYearsTime>::new(-0.1);
@@ -431,6 +457,345 @@ fn duration_range() {
     insta::assert_snapshot!(result.unwrap_err(), @"duration too long");
 }
 
+#[test]
+fn hyperbolic_from_incremental_duration_and_final_rate() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+    let exponent = 0.9;
+
+    let reference = HyperbolicParameters::from_incremental_duration(
+        initial_rate,
+        initial_decline_rate,
+        incremental_duration,
+        exponent,
+    )
+    .unwrap();
+
+    let solved = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        reference.final_rate(),
+        exponent,
+    )
+    .unwrap();
+
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+    assert_solved(solved.final_rate().value(), reference.final_rate().value());
+}
+
+#[test]
+fn hyperbolic_from_final_rate_and_incremental_volume() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let initial_decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.5).into();
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+    let exponent = 0.9;
+
+    let reference = HyperbolicParameters::from_incremental_duration(
+        initial_rate,
+        initial_decline_rate,
+        incremental_duration,
+        exponent,
+    )
+    .unwrap();
+
+    let solved = HyperbolicParameters::from_final_rate_and_incremental_volume(
+        initial_rate,
+        reference.final_rate(),
+        reference.incremental_volume(),
+        exponent,
+    )
+    .unwrap();
+
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+    assert_solved(
+        solved.incremental_duration().days,
+        reference.incremental_duration().days,
+    );
+    assert_solved(solved.final_rate().value(), reference.final_rate().value());
+    assert_solved(solved.incremental_volume(), reference.incremental_volume());
+}
+
+#[test]
+fn hyperbolic_solving_rejects_an_exponent_that_belongs_to_another_family() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+    let final_rate = ProductionRate::<AverageDaysTime>::new(10.);
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        final_rate,
+        0.,
+    );
+
+    insta::assert_snapshot!(
+        result.unwrap_err(),
+        @"exponent was approximately zero, so an exponential should be used instead"
+    );
+}
+
+#[test]
+fn hyperbolic_holds_precision_for_exponents_near_one() {
+    let initial_rate = ProductionRate::<AverageYearsTime>::new(100.);
+    let decline_rate = 0.35;
+    let duration = AverageYearsTime { years: 10. };
+
+    let final_rate =
+        ProductionRate::<AverageYearsTime>::new(100. / (1. + decline_rate * duration.years));
+    let volume = 100. * (1. + decline_rate * duration.years).ln() / decline_rate;
+
+    for exponent in [1. + 2e-12, 1. - 2e-12] {
+        let solved = HyperbolicParameters::from_final_rate_and_incremental_volume(
+            initial_rate,
+            final_rate,
+            volume,
+            exponent,
+        )
+        .unwrap();
+
+        let relative_error =
+            (solved.initial_decline_rate().value() - decline_rate).abs() / decline_rate;
+        assert!(
+            relative_error < 1e-11,
+            "exponent {exponent} solved to a relative error of {relative_error:e}"
+        );
+    }
+}
+
+#[test]
+fn hyperbolic_solving_an_incline_keeps_the_sign() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let incline_rate = NominalDeclineRate::<AverageYearsTime>::new(-0.2).into();
+    let exponent = 0.5;
+    // `t_max = -1 / (b * d)` is 10 years here.
+    let incremental_duration = AverageDaysTime { days: 2. * 365. };
+
+    let reference = HyperbolicParameters::from_incremental_duration(
+        initial_rate,
+        incline_rate,
+        incremental_duration,
+        exponent,
+    )
+    .unwrap();
+
+    let solved = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        reference.final_rate(),
+        exponent,
+    )
+    .unwrap();
+
+    assert!(solved.initial_decline_rate().value() < 0.);
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+    assert_solved(solved.final_rate().value(), reference.final_rate().value());
+
+    let solved = HyperbolicParameters::from_final_rate_and_incremental_volume(
+        initial_rate,
+        reference.final_rate(),
+        reference.incremental_volume(),
+        exponent,
+    )
+    .unwrap();
+
+    assert!(solved.initial_decline_rate().value() < 0.);
+    assert_solved(
+        solved.initial_decline_rate().value(),
+        reference.initial_decline_rate().value(),
+    );
+    assert_solved(solved.incremental_volume(), reference.incremental_volume());
+}
+
+/// A negative `b * d` product limits the duration rather than ruling the segment out.
+#[test]
+fn hyperbolic_allows_every_sign_combination() {
+    let initial_rate = ProductionRate::<AverageYearsTime>::new(100.);
+    let decline = NominalDeclineRate::<AverageYearsTime>::new(0.2);
+    let incline = NominalDeclineRate::<AverageYearsTime>::new(-0.2);
+    let duration = AverageYearsTime { years: 2. };
+
+    // `b * d > 0`: the base only grows, so any duration is reachable.
+    let params =
+        HyperbolicParameters::from_incremental_duration(initial_rate, decline, duration, 0.5)
+            .unwrap();
+    insta::assert_snapshot!(params.final_rate().value(), @"69.44444444444444");
+
+    let params =
+        HyperbolicParameters::from_incremental_duration(initial_rate, incline, duration, -0.5)
+            .unwrap();
+    insta::assert_snapshot!(params.final_rate().value(), @"143.99999999999997");
+
+    // `b > 0` with an incline: the rate runs away to the singularity.
+    let params =
+        HyperbolicParameters::from_incremental_duration(initial_rate, incline, duration, 0.5)
+            .unwrap();
+    insta::assert_snapshot!(params.final_rate().value(), @"156.24999999999997");
+
+    // `b < 0` with a decline: the rate runs down to zero at the singularity.
+    let params =
+        HyperbolicParameters::from_incremental_duration(initial_rate, decline, duration, -0.5)
+            .unwrap();
+    insta::assert_snapshot!(params.final_rate().value(), @"64.00000000000001");
+}
+
+#[test]
+fn hyperbolic_rejects_a_duration_past_the_singularity() {
+    let initial_rate = ProductionRate::<AverageYearsTime>::new(100.);
+    let incline = NominalDeclineRate::<AverageYearsTime>::new(-0.2);
+    let exponent = 0.5;
+    // `t_max = -1 / (b * d)` is 10 years here.
+    let at_singularity = AverageYearsTime { years: 10. };
+
+    let result = HyperbolicParameters::from_incremental_duration(
+        initial_rate,
+        incline,
+        at_singularity,
+        exponent,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"duration too long");
+
+    let just_under = AverageYearsTime { years: 9.9 };
+    let params = HyperbolicParameters::from_incremental_duration(
+        initial_rate,
+        incline,
+        just_under,
+        exponent,
+    )
+    .unwrap();
+    insta::assert_snapshot!(params.final_rate().value(), @"1000000.0000000179");
+}
+
+#[test]
+fn hyperbolic_solving_rejects_cutoffs_that_imply_no_decline() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        initial_rate,
+        0.5,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+
+    let result = HyperbolicParameters::from_final_rate_and_incremental_volume(
+        initial_rate,
+        ProductionRate::<AverageDaysTime>::new(10.),
+        1e300,
+        0.5,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+
+    // The rate ratio overflows to infinity.
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        ProductionRate::<AverageDaysTime>::new(1e300),
+        incremental_duration,
+        ProductionRate::<AverageDaysTime>::new(1e-11),
+        0.5,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"cannot solve decline: no finite solution exists for the given parameters");
+}
+
+#[test]
+fn hyperbolic_solving_rejects_degenerate_cutoffs() {
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let final_rate = ProductionRate::<AverageDaysTime>::new(10.);
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        AverageDaysTime { days: 0. },
+        final_rate,
+        0.5,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"duration is approximately zero, but expected it to be non-zero");
+
+    let result = HyperbolicParameters::from_final_rate_and_incremental_volume(
+        initial_rate,
+        final_rate,
+        0.,
+        0.5,
+    );
+    insta::assert_snapshot!(result.unwrap_err(), @"incremental volume is approximately zero, but expected it to be non-zero");
+}
+
+#[test]
+fn hyperbolic_rejects_exponents_too_close_to_zero() {
+    const MIN_EXPONENT: f64 = 1e-6;
+
+    let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
+    let incremental_duration = AverageDaysTime { days: 10. * 365. };
+    let final_rate = ProductionRate::<AverageDaysTime>::new(10.);
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        final_rate,
+        1e-12,
+    );
+    insta::assert_snapshot!(
+        result.unwrap_err(),
+        @"exponent was approximately zero, so an exponential should be used instead"
+    );
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        final_rate,
+        1e-9,
+    );
+    insta::assert_snapshot!(
+        result.unwrap_err(),
+        @"exponent was approximately zero, so an exponential should be used instead"
+    );
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        final_rate,
+        MIN_EXPONENT / 10.,
+    );
+    insta::assert_snapshot!(
+        result.unwrap_err(),
+        @"exponent was approximately zero, so an exponential should be used instead"
+    );
+
+    let result = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        final_rate,
+        -MIN_EXPONENT / 10.,
+    );
+    insta::assert_snapshot!(
+        result.unwrap_err(),
+        @"exponent was approximately zero, so an exponential should be used instead"
+    );
+
+    // Right at the limit the solve still holds about ten significant digits.
+    let solved = HyperbolicParameters::from_incremental_duration_and_final_rate(
+        initial_rate,
+        incremental_duration,
+        final_rate,
+        MIN_EXPONENT,
+    )
+    .unwrap();
+    let relative_error =
+        (solved.final_rate().value() - final_rate.value()).abs() / final_rate.value();
+    assert!(
+        relative_error < 1e-9,
+        "relative error was {relative_error:e}"
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
 
@@ -507,5 +872,103 @@ proptest! {
             prop_assert!(duration >= 0., "Duration should be non-negative, got {}", duration);
             prop_assert!(duration.is_finite(), "Duration should be finite, got {}", duration);
         }
+    }
+
+    /// Nothing the solver returns may carry an infinity or a NaN out with it.
+    #[test]
+    fn from_incremental_duration_and_final_rate(
+        rate in prop::num::f64::ANY,
+        duration in prop::num::f64::ANY,
+        final_rate_value in prop::num::f64::ANY,
+        exponent in prop::num::f64::ANY,
+    ) {
+        let initial_rate = ProductionRate::<AverageYearsTime>::new(rate);
+        let final_rate = ProductionRate::<AverageYearsTime>::new(final_rate_value);
+        let incremental_duration = AverageYearsTime { years: duration };
+        let result = HyperbolicParameters::from_incremental_duration_and_final_rate(initial_rate, incremental_duration, final_rate, exponent);
+
+        if let Ok(params) = result {
+            let decline = params.initial_decline_rate().value();
+            prop_assert!(decline.is_finite(), "Decline rate should be finite, got {}", decline);
+            prop_assert!(decline != 0., "Decline rate should be non-zero");
+            let duration = params.incremental_duration().years;
+            prop_assert!(duration >= 0., "Duration should be non-negative, got {}", duration);
+            prop_assert!(duration.is_finite(), "Duration should be finite, got {}", duration);
+        }
+    }
+
+    #[test]
+    fn from_final_rate_and_incremental_volume(
+        rate in prop::num::f64::ANY,
+        final_rate_value in prop::num::f64::ANY,
+        volume in prop::num::f64::ANY,
+        exponent in prop::num::f64::ANY,
+    ) {
+        let initial_rate = ProductionRate::<AverageYearsTime>::new(rate);
+        let final_rate = ProductionRate::<AverageYearsTime>::new(final_rate_value);
+        let result = HyperbolicParameters::from_final_rate_and_incremental_volume(initial_rate, final_rate, volume, exponent);
+
+        if let Ok(params) = result {
+            let decline = params.initial_decline_rate().value();
+            prop_assert!(decline.is_finite(), "Decline rate should be finite, got {}", decline);
+            prop_assert!(decline != 0., "Decline rate should be non-zero");
+            let duration = params.incremental_duration().years;
+            prop_assert!(duration >= 0., "Duration should be non-negative, got {}", duration);
+            prop_assert!(duration.is_finite(), "Duration should be finite, got {}", duration);
+        }
+    }
+
+    #[test]
+    fn solving_round_trips_through_both_cutoffs(
+        rate in 1.0f64..1e5,
+        decline in prop_oneof![-1.0f64..-0.01, 0.01f64..1.0],
+        duration in 0.1f64..50.,
+        exponent in prop_oneof![-2.0f64..-0.05, 0.05f64..0.95, 1.05f64..2.0],
+        singularity_fraction in 0.01f64..0.95,
+        decline_span in 0.01f64..10.,
+    ) {
+        // Cap how far the segment declines, so the final rate stays above the validation floor.
+        let duration = (decline_span / decline.abs()).min(duration);
+
+        // Stay short of the singularity at `t_max = -1 / (b * d)`.
+        let base_slope = exponent * decline;
+        let duration = if base_slope < 0. {
+            (-singularity_fraction / base_slope).min(duration)
+        } else {
+            duration
+        };
+
+        let initial_rate = ProductionRate::<AverageYearsTime>::new(rate);
+        let decline_rate = NominalDeclineRate::<AverageYearsTime>::new(decline);
+        let incremental_duration = AverageYearsTime { years: duration };
+
+        let reference = HyperbolicParameters::from_incremental_duration(
+            initial_rate,
+            decline_rate,
+            incremental_duration,
+            exponent,
+        )
+        .unwrap();
+
+        let solved = HyperbolicParameters::from_incremental_duration_and_final_rate(
+            initial_rate,
+            incremental_duration,
+            reference.final_rate(),
+            exponent,
+        )
+        .unwrap();
+        assert_solved(solved.initial_decline_rate().value(), decline);
+        assert_solved(solved.final_rate().value(), reference.final_rate().value());
+
+        let solved = HyperbolicParameters::from_final_rate_and_incremental_volume(
+            initial_rate,
+            reference.final_rate(),
+            reference.incremental_volume(),
+            exponent,
+        )
+        .unwrap();
+        assert_solved(solved.initial_decline_rate().value(), decline);
+        assert_solved(solved.incremental_duration().years, duration);
+        assert_solved(solved.incremental_volume(), reference.incremental_volume());
     }
 }

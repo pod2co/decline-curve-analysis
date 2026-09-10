@@ -126,6 +126,89 @@ pub(crate) fn validate_incremental_volume(volume: f64) -> Result<(), DeclineCurv
     Ok(())
 }
 
+/// Validates that a volume is positive, finite, and non-zero.
+pub(crate) fn validate_non_zero_positive_volume(
+    volume: f64,
+) -> Result<(), DeclineCurveAnalysisError> {
+    validate_incremental_volume(volume)?;
+    if is_effectively_zero(volume) {
+        return Err(DeclineCurveAnalysisError::InvalidInput {
+            reason: "incremental volume is approximately zero, but expected it to be non-zero"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Validates a derived duration, reporting an unusable one as an unsolvable decline and
+/// normalizing the `-0.0` that deriving a zero might result in.
+pub(crate) fn validate_derived_duration<Time: DeclineTimeUnit>(
+    duration: Time,
+) -> Result<Time, DeclineCurveAnalysisError> {
+    // `-0.0` is zero reached from below rather than a negative duration.
+    if duration.value() == 0. {
+        return Ok(Time::from(0.));
+    }
+
+    match validate_duration(duration) {
+        Ok(()) => Ok(duration),
+        Err(DeclineCurveAnalysisError::InvalidInput { .. }) => {
+            Err(DeclineCurveAnalysisError::CannotSolveDecline)
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// Validates a derived decline rate, reporting an unusable one as an unsolvable decline.
+pub(crate) fn validate_derived_decline_rate(
+    decline_rate: f64,
+) -> Result<(), DeclineCurveAnalysisError> {
+    if !decline_rate.is_finite() {
+        return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+    }
+    Ok(())
+}
+
+/// Validates that a derived decline rate is non-zero, on top of
+/// [`validate_derived_decline_rate`].
+pub(crate) fn validate_non_zero_derived_decline_rate(
+    decline_rate: f64,
+) -> Result<(), DeclineCurveAnalysisError> {
+    validate_derived_decline_rate(decline_rate)?;
+    if is_effectively_zero(decline_rate) {
+        return Err(DeclineCurveAnalysisError::CannotSolveDecline);
+    }
+    Ok(())
+}
+
+/// Validates that a duration is non-zero, on top of [`validate_duration`].
+pub(crate) fn validate_non_zero_duration<Time: DeclineTimeUnit>(
+    duration: Time,
+) -> Result<(), DeclineCurveAnalysisError> {
+    validate_duration(duration)?;
+    if is_effectively_zero(duration.value()) {
+        return Err(DeclineCurveAnalysisError::InvalidInput {
+            reason: "duration is approximately zero, but expected it to be non-zero".to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Validates that a segment avoids the singularity in the Arps rate equation.
+///
+/// `q_i * (1 + b * d * t) ^ (-1 / b)` is only defined while its base stays positive.
+pub(crate) fn validate_arps_singularity<Time: DeclineTimeUnit>(
+    exponent: f64,
+    decline_rate: NominalDeclineRate<Time>,
+    duration: Time,
+) -> Result<(), DeclineCurveAnalysisError> {
+    let base_slope = exponent * decline_rate.value();
+    if base_slope < 0. && duration.value() >= -1. / base_slope {
+        return Err(DeclineCurveAnalysisError::DurationTooLong);
+    }
+    Ok(())
+}
+
 /// An error type for invalid parameters.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum DeclineCurveAnalysisError {
@@ -266,5 +349,135 @@ mod tests {
     fn validate_positive_rejects_negative_zero() {
         let result = validate_positive(-0., "value");
         insta::assert_snapshot!(result.unwrap_err(), @"value is negative, but expected a positive number");
+    }
+
+    #[test]
+    fn validate_non_zero_positive_volume_rejects_zero() {
+        insta::assert_snapshot!(
+            validate_non_zero_positive_volume(0.).unwrap_err(),
+            @"incremental volume is approximately zero, but expected it to be non-zero"
+        );
+        insta::assert_snapshot!(
+            validate_non_zero_positive_volume(EPSILON * 0.5).unwrap_err(),
+            @"incremental volume is approximately zero, but expected it to be non-zero"
+        );
+        insta::assert_snapshot!(
+            validate_non_zero_positive_volume(-1.).unwrap_err(),
+            @"incremental volume is negative, but expected a positive number"
+        );
+        assert!(validate_non_zero_positive_volume(EPSILON * 10.).is_ok());
+    }
+
+    #[test]
+    fn validate_non_zero_duration_rejects_zero() {
+        insta::assert_snapshot!(
+            validate_non_zero_duration(AverageDaysTime { days: 0. }).unwrap_err(),
+            @"duration is approximately zero, but expected it to be non-zero"
+        );
+        insta::assert_snapshot!(
+            validate_non_zero_duration(AverageDaysTime { days: -1. }).unwrap_err(),
+            @"duration is negative, but expected a positive number"
+        );
+        assert!(validate_non_zero_duration(AverageDaysTime { days: 1. }).is_ok());
+    }
+
+    #[test]
+    fn validate_derived_duration_hides_a_parameter_the_caller_never_passed() {
+        insta::assert_debug_snapshot!(
+            validate_derived_duration(AverageYearsTime { years: -1. }).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_derived_duration(AverageYearsTime { years: f64::NAN }).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_derived_duration(AverageYearsTime { years: f64::INFINITY }).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_derived_duration(AverageYearsTime { years: MAX_DURATION_YEARS + 1. })
+                .unwrap_err(),
+            @"DurationTooLong"
+        );
+        assert_eq!(
+            validate_derived_duration(AverageYearsTime { years: 10. }).unwrap(),
+            AverageYearsTime { years: 10. }
+        );
+
+        let normalized = validate_derived_duration(AverageYearsTime { years: -0. }).unwrap();
+        assert_eq!(normalized.years, 0.);
+        assert!(normalized.years.is_sign_positive());
+    }
+
+    #[test]
+    fn validate_derived_decline_rate_hides_a_parameter_the_caller_never_passed() {
+        insta::assert_debug_snapshot!(
+            validate_derived_decline_rate(f64::NAN).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_derived_decline_rate(f64::INFINITY).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_derived_decline_rate(f64::NEG_INFINITY).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+
+        // Zero is a flat segment, which is a curve a linear decline can represent.
+        assert!(validate_derived_decline_rate(0.).is_ok());
+        assert!(validate_derived_decline_rate(0.1).is_ok());
+        assert!(validate_derived_decline_rate(-0.1).is_ok());
+    }
+
+    #[test]
+    fn validate_non_zero_derived_decline_rate_also_rejects_zero() {
+        insta::assert_debug_snapshot!(
+            validate_non_zero_derived_decline_rate(0.).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_non_zero_derived_decline_rate(-0.).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_non_zero_derived_decline_rate(EPSILON * 0.5).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        insta::assert_debug_snapshot!(
+            validate_non_zero_derived_decline_rate(f64::NAN).unwrap_err(),
+            @"CannotSolveDecline"
+        );
+        assert!(validate_non_zero_derived_decline_rate(0.1).is_ok());
+        assert!(validate_non_zero_derived_decline_rate(-0.1).is_ok());
+    }
+
+    #[test]
+    fn validate_arps_singularity_only_limits_a_shrinking_base() {
+        let incline = NominalDeclineRate::<AverageYearsTime>::new(-0.1);
+        let decline = NominalDeclineRate::<AverageYearsTime>::new(0.1);
+
+        // `b * d < 0`, so the base reaches zero at `t_max = -1 / (b * d)` = 20 years.
+        let exponent = 0.5;
+        assert!(
+            validate_arps_singularity(exponent, incline, AverageYearsTime { years: 19.9 }).is_ok()
+        );
+        insta::assert_debug_snapshot!(
+            validate_arps_singularity(exponent, incline, AverageYearsTime { years: 20. }).unwrap_err(),
+            @"DurationTooLong"
+        );
+        insta::assert_debug_snapshot!(
+            validate_arps_singularity(-exponent, decline, AverageYearsTime { years: 20. }).unwrap_err(),
+            @"DurationTooLong"
+        );
+
+        // `b * d > 0`, so the base only grows and any duration is reachable.
+        assert!(
+            validate_arps_singularity(exponent, decline, AverageYearsTime { years: 1e6 }).is_ok()
+        );
+        assert!(
+            validate_arps_singularity(-exponent, incline, AverageYearsTime { years: 1e6 }).is_ok()
+        );
     }
 }

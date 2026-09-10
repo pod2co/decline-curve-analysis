@@ -1,8 +1,10 @@
 use crate::{
     DeclineCurveAnalysisError, DeclineRateSignValidation, DeclineTimeUnit, NominalDeclineRate,
-    ProductionRate, approx_gte, is_effectively_zero, validate_decline_rate_sign, validate_duration,
-    validate_finite, validate_incremental_volume, validate_non_zero_decline_rate,
-    validate_non_zero_positive_rate,
+    ProductionRate, approx_gte, is_effectively_zero, validate_arps_singularity,
+    validate_decline_rate_sign, validate_derived_duration, validate_duration, validate_finite,
+    validate_incremental_volume, validate_non_zero_decline_rate,
+    validate_non_zero_derived_decline_rate, validate_non_zero_duration,
+    validate_non_zero_positive_rate, validate_non_zero_positive_volume,
 };
 
 /// Maximum allowed exponent magnitude for hyperbolic decline.
@@ -11,13 +13,21 @@ use crate::{
 /// errors.
 const MAX_EXPONENT: f64 = 100.;
 
+/// Minimum allowed exponent magnitude for hyperbolic decline.
+///
+/// Solving a decline rate from a duration divides by `b`, and the `(q_i / q_f) ^ b - 1` it divides
+/// keeps no more precision than `b` itself. A solve holds about ten significant digits here but
+/// only five by `b = 1e-12`.
+const MIN_EXPONENT: f64 = 1e-6;
+
 /// Validates that a hyperbolic exponent is valid.
-fn validate_hyperbolic_exponent(
-    exponent: f64,
-    initial_decline_rate: f64,
-) -> Result<(), DeclineCurveAnalysisError> {
+///
+/// Deliberately says nothing about the decline rate: a negative `b * d` product limits the
+/// duration rather than ruling the segment out. See [`validate_arps_singularity`].
+fn validate_hyperbolic_exponent(exponent: f64) -> Result<(), DeclineCurveAnalysisError> {
     validate_finite(exponent, "exponent")?;
-    if is_effectively_zero(exponent) {
+
+    if exponent.abs() < MIN_EXPONENT {
         return Err(DeclineCurveAnalysisError::InvalidInput {
             reason: "exponent was approximately zero, so an exponential should be used instead"
                 .to_string(),
@@ -33,10 +43,6 @@ fn validate_hyperbolic_exponent(
 
     if exponent.abs() > MAX_EXPONENT {
         return Err(DeclineCurveAnalysisError::ExponentTooLarge);
-    }
-
-    if exponent.is_sign_positive() != initial_decline_rate.is_sign_positive() {
-        return Err(DeclineCurveAnalysisError::DeclineRateWrongSign);
     }
 
     Ok(())
@@ -81,7 +87,8 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
         validate_non_zero_decline_rate(initial_decline_rate_value, "initial decline rate")?;
         validate_duration(incremental_duration)?;
-        validate_hyperbolic_exponent(exponent, initial_decline_rate_value)?;
+        validate_hyperbolic_exponent(exponent)?;
+        validate_arps_singularity(exponent, initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -102,21 +109,16 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
         validate_non_zero_decline_rate(initial_decline_rate_value, "initial decline rate")?;
         validate_incremental_volume(incremental_volume)?;
-        validate_hyperbolic_exponent(exponent, initial_decline_rate_value)?;
+        validate_hyperbolic_exponent(exponent)?;
 
         let one_minus_exponent = 1. - exponent;
 
-        // For hyperbolic declines with a positive decline rate, and 0 < exponent < 1, the maximum
-        // volume possible (as time approaches infinity) is given by:
-        //
-        //   q_i / ((1 - b) * d)
-        //
-        // If the incremental volume is greater or equal to this, then we can't solve the decline.
-        //
-        // There should be no maximum volume for all other cases (inclines and/or other exponent
-        // ranges).
-        if initial_decline_rate_value > 0. && exponent > 0. && exponent < 1. {
-            let max_volume = initial_rate.value / (one_minus_exponent * initial_decline_rate_value);
+        // The cumulative volume tends towards `q_i / ((1 - b) * d)` whenever that is positive,
+        // either as time runs to infinity or as the segment nears `t_max`. When it's negative the
+        // volume grows without bound instead, so every volume is reachable.
+        let max_volume_denom = one_minus_exponent * initial_decline_rate_value;
+        if max_volume_denom > 0. {
+            let max_volume = initial_rate.value / max_volume_denom;
             if approx_gte(incremental_volume, max_volume) {
                 return Err(DeclineCurveAnalysisError::CannotSolveDecline);
             }
@@ -128,7 +130,8 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         let duration_denom = exponent * initial_decline_rate_value;
         let incremental_duration =
             Time::from((base.powf(-exponent / one_minus_exponent) - 1.) / duration_denom);
-        validate_duration(incremental_duration)?;
+        let incremental_duration = validate_derived_duration(incremental_duration)?;
+        validate_arps_singularity(exponent, initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -150,7 +153,7 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
         validate_non_zero_decline_rate(initial_decline_rate_value, "initial decline rate")?;
         validate_non_zero_decline_rate(final_decline_rate_value, "final decline rate")?;
-        validate_hyperbolic_exponent(exponent, initial_decline_rate_value)?;
+        validate_hyperbolic_exponent(exponent)?;
 
         if initial_decline_rate_value.is_sign_positive()
             != final_decline_rate_value.is_sign_positive()
@@ -170,7 +173,8 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
             (initial_decline_rate_value / final_decline_rate_value - 1.)
                 / (exponent * initial_decline_rate_value),
         );
-        validate_duration(incremental_duration)?;
+        let incremental_duration = validate_derived_duration(incremental_duration)?;
+        validate_arps_singularity(exponent, initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -191,7 +195,7 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
         validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
         validate_non_zero_decline_rate(initial_decline_rate_value, "initial decline rate")?;
         validate_non_zero_positive_rate(final_rate.value, "final rate")?;
-        validate_hyperbolic_exponent(exponent, initial_decline_rate_value)?;
+        validate_hyperbolic_exponent(exponent)?;
 
         match validate_decline_rate_sign(
             initial_decline_rate_value,
@@ -213,7 +217,8 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
             ((initial_rate.value / final_rate.value).powf(exponent) - 1.0)
                 / (exponent * initial_decline_rate_value),
         );
-        validate_duration(incremental_duration)?;
+        let incremental_duration = validate_derived_duration(incremental_duration)?;
+        validate_arps_singularity(exponent, initial_decline_rate, incremental_duration)?;
 
         Ok(Self {
             initial_rate,
@@ -221,6 +226,61 @@ impl<Time: DeclineTimeUnit> HyperbolicParameters<Time> {
             incremental_duration,
             exponent,
         })
+    }
+
+    /// Builds a segment from a duration and a final rate, solving the initial decline rate that
+    /// reaches both at the same point.
+    pub fn from_incremental_duration_and_final_rate(
+        initial_rate: ProductionRate<Time>,
+        incremental_duration: Time,
+        final_rate: ProductionRate<Time>,
+        exponent: f64,
+    ) -> Result<Self, DeclineCurveAnalysisError> {
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
+        validate_non_zero_duration(incremental_duration)?;
+        validate_hyperbolic_exponent(exponent)?;
+
+        // `q_f = q_i * (1 + b * d * t) ^ (-1 / b)`, rearranged for `d`.
+        let initial_decline_rate = NominalDeclineRate::new(
+            ((initial_rate.value / final_rate.value).powf(exponent) - 1.)
+                / (exponent * incremental_duration.value()),
+        );
+        validate_non_zero_derived_decline_rate(initial_decline_rate.value())?;
+
+        Self::from_incremental_duration(
+            initial_rate,
+            initial_decline_rate,
+            incremental_duration,
+            exponent,
+        )
+    }
+
+    /// Builds a segment from a final rate and an incremental volume, solving the initial decline
+    /// rate that reaches both at the same point.
+    pub fn from_final_rate_and_incremental_volume(
+        initial_rate: ProductionRate<Time>,
+        final_rate: ProductionRate<Time>,
+        incremental_volume: f64,
+        exponent: f64,
+    ) -> Result<Self, DeclineCurveAnalysisError> {
+        validate_non_zero_positive_rate(initial_rate.value, "initial rate")?;
+        validate_non_zero_positive_rate(final_rate.value, "final rate")?;
+        validate_non_zero_positive_volume(incremental_volume)?;
+        validate_hyperbolic_exponent(exponent)?;
+
+        // `n_p = q_i * (1 - (q_f / q_i) ^ (1 - b)) / ((1 - b) * d)`, rearranged for `d`. Writing
+        // `1 - x ^ u` as `-exp_m1(u * ln(x))` holds its precision as `b` approaches one, where
+        // `powf` would cancel away most of the digits.
+        let one_minus_exponent = 1. - exponent;
+        let initial_decline_rate = NominalDeclineRate::new(
+            -initial_rate.value
+                * (one_minus_exponent * (final_rate.value / initial_rate.value).ln()).exp_m1()
+                / (one_minus_exponent * incremental_volume),
+        );
+        validate_non_zero_derived_decline_rate(initial_decline_rate.value())?;
+
+        Self::from_final_rate(initial_rate, initial_decline_rate, final_rate, exponent)
     }
 
     fn incremental_volume_at_time_without_clamping(&self, time: Time) -> f64 {
