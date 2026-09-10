@@ -1,10 +1,9 @@
+mod common;
+use common::{assert_sig_snapshot, assert_solved};
 use decline_curve_analysis::{
     AverageDaysTime, AverageYearsTime, HyperbolicParameters, NominalDeclineRate, ProductionRate,
 };
 use proptest::prelude::*;
-
-mod common;
-use common::assert_solved;
 
 #[test]
 fn hyperbolic_from_incremental_duration() {
@@ -23,7 +22,7 @@ fn hyperbolic_from_incremental_duration() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"3650");
+    assert_sig_snapshot!(calculated_duration, @"3650");
 }
 
 #[test]
@@ -43,7 +42,7 @@ fn hyperbolic_from_incremental_volume() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"2643.3545188968474");
+    assert_sig_snapshot!(calculated_duration, @"2643.3545189");
 }
 
 #[test]
@@ -63,7 +62,7 @@ fn hyperbolic_from_final_decline_rate() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"2643.3545188968483");
+    assert_sig_snapshot!(calculated_duration, @"2643.3545189");
 }
 
 #[test]
@@ -83,7 +82,7 @@ fn hyperbolic_from_final_rate() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"2643.354518896851");
+    assert_sig_snapshot!(calculated_duration, @"2643.3545189");
 }
 
 #[test]
@@ -102,10 +101,10 @@ fn hyperbolic_incremental_volume_at_time() {
     .unwrap();
 
     // Calculate past the end to check the total.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 2700. }), @"54298.10011031419");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 2700. }), @"54298.1001103");
 
     // Check a point somewhere in the middle.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 2700. }), @"37666.26214690978");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 2700. }), @"37666.2621469");
 }
 
 #[test]
@@ -123,7 +122,7 @@ fn hyperbolic_final_rate() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.final_rate().value(), @"9.999997809619451");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"9.99999780962");
 }
 
 #[test]
@@ -140,9 +139,9 @@ fn hyperbolic_incline() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.incremental_duration().days, @"3650");
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"187066.8962759463");
-    insta::assert_snapshot!(parameters.final_rate().value(), @"52.50444884947007");
+    assert_sig_snapshot!(parameters.incremental_duration().days, @"3650");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"187066.896276");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"52.5044488495");
 }
 
 #[test]
@@ -187,7 +186,7 @@ fn hyperbolic_final_decline_rate_impossible() {
         -0.9,
     )
     .unwrap();
-    insta::assert_snapshot!(parameters.incremental_duration().days, @"202.91666666666663");
+    assert_sig_snapshot!(parameters.incremental_duration().days, @"202.916666667");
 
     // Positive initial decline rate with negative final decline rate.
     let parameters = HyperbolicParameters::from_final_decline_rate(
@@ -248,7 +247,7 @@ fn exponent_greater_than_one() {
         exponent,
     )
     .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"15.83333333333333");
+    assert_sig_snapshot!(params.incremental_duration().years, @"15.8333333333");
 }
 
 #[test]
@@ -275,7 +274,7 @@ fn negative_exponent() {
     )
     .unwrap();
     // Short of `t_max`, which is 20 years for these parameters.
-    insta::assert_snapshot!(params.incremental_duration().years, @"7.400789501051268");
+    assert_sig_snapshot!(params.incremental_duration().years, @"7.40078950105");
     assert_solved(params.incremental_volume(), volume_under_the_cap);
 
     let initial_rate = ProductionRate::<AverageYearsTime>::new(100.);
@@ -289,7 +288,7 @@ fn negative_exponent() {
         exponent,
     )
     .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"30.396841995794926");
+    assert_sig_snapshot!(params.incremental_duration().years, @"30.3968419958");
 }
 
 #[test]
@@ -408,8 +407,8 @@ fn zero_duration() {
         exponent,
     )
     .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"0");
-    insta::assert_snapshot!(params.incremental_volume(), @"0");
+    assert_sig_snapshot!(params.incremental_duration().days, @"0");
+    assert_sig_snapshot!(params.incremental_volume(), @"0");
 }
 
 #[test]
@@ -420,7 +419,7 @@ fn zero_volume() {
     let result =
         HyperbolicParameters::from_incremental_volume(initial_rate, decline_rate, 0., exponent);
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"0");
+    assert_sig_snapshot!(params.incremental_duration().years, @"0");
 }
 
 #[test]
@@ -439,7 +438,7 @@ fn final_rate_roundtrip() {
     .unwrap();
 
     let actual_final_rate = params.final_rate().value();
-    insta::assert_snapshot!(actual_final_rate, @"49.999999999999986");
+    assert_sig_snapshot!(actual_final_rate, @"50");
 }
 
 #[test]
@@ -628,24 +627,24 @@ fn hyperbolic_allows_every_sign_combination() {
     let params =
         HyperbolicParameters::from_incremental_duration(initial_rate, decline, duration, 0.5)
             .unwrap();
-    insta::assert_snapshot!(params.final_rate().value(), @"69.44444444444444");
+    assert_sig_snapshot!(params.final_rate().value(), @"69.4444444444");
 
     let params =
         HyperbolicParameters::from_incremental_duration(initial_rate, incline, duration, -0.5)
             .unwrap();
-    insta::assert_snapshot!(params.final_rate().value(), @"143.99999999999997");
+    assert_sig_snapshot!(params.final_rate().value(), @"144");
 
     // `b > 0` with an incline: the rate runs away to the singularity.
     let params =
         HyperbolicParameters::from_incremental_duration(initial_rate, incline, duration, 0.5)
             .unwrap();
-    insta::assert_snapshot!(params.final_rate().value(), @"156.24999999999997");
+    assert_sig_snapshot!(params.final_rate().value(), @"156.25");
 
     // `b < 0` with a decline: the rate runs down to zero at the singularity.
     let params =
         HyperbolicParameters::from_incremental_duration(initial_rate, decline, duration, -0.5)
             .unwrap();
-    insta::assert_snapshot!(params.final_rate().value(), @"64.00000000000001");
+    assert_sig_snapshot!(params.final_rate().value(), @"64");
 }
 
 #[test]
@@ -672,7 +671,7 @@ fn hyperbolic_rejects_a_duration_past_the_singularity() {
         exponent,
     )
     .unwrap();
-    insta::assert_snapshot!(params.final_rate().value(), @"1000000.0000000179");
+    assert_sig_snapshot!(params.final_rate().value(), @"1000000");
 }
 
 #[test]

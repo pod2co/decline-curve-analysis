@@ -1,10 +1,9 @@
+mod common;
+use common::{assert_sig_snapshot, assert_solved};
 use decline_curve_analysis::{
     AverageDaysTime, AverageYearsTime, ExponentialParameters, NominalDeclineRate, ProductionRate,
 };
 use proptest::prelude::*;
-
-mod common;
-use common::assert_solved;
 
 #[test]
 fn exponential_from_incremental_duration() {
@@ -21,7 +20,7 @@ fn exponential_from_incremental_duration() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"3650");
+    assert_sig_snapshot!(calculated_duration, @"3650");
 }
 
 #[test]
@@ -39,7 +38,7 @@ fn exponential_from_incremental_volume() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"1175.6943950331104");
+    assert_sig_snapshot!(calculated_duration, @"1175.69439503");
 }
 
 #[test]
@@ -54,7 +53,7 @@ fn exponential_from_final_rate() {
             .incremental_duration()
             .days;
 
-    insta::assert_snapshot!(calculated_duration, @"1175.6943950331104");
+    assert_sig_snapshot!(calculated_duration, @"1175.69439503");
 }
 
 #[test]
@@ -71,10 +70,10 @@ fn exponential_incremental_volume_at_time() {
     .unwrap();
 
     // Calculate past the end to check the total.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 1180. }), @"29219.999049668837");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 1180. }), @"29219.9990497");
 
     // Check a point somewhere in the middle.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 1180. }), @"20238.590688787954");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 1180. }), @"20238.5906888");
 }
 
 #[test]
@@ -90,7 +89,7 @@ fn exponential_final_rate() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.final_rate().value(), @"10.000001300932462");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"10.0000013009");
 }
 
 #[test]
@@ -106,9 +105,9 @@ fn exponential_incline() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.incremental_duration().days, @"3650");
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"5365745.699923456");
-    insta::assert_snapshot!(parameters.final_rate().value(), @"7395.30554404306");
+    assert_sig_snapshot!(parameters.incremental_duration().days, @"3650");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"5365745.69992");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"7395.30554404");
 }
 
 #[test]
@@ -156,7 +155,7 @@ fn volume_range() {
         incremental_volume_slightly_less_than_max,
     )
     .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"92.10340371977404");
+    assert_sig_snapshot!(params.incremental_duration().years, @"92.1034037198");
 }
 
 #[test]
@@ -168,7 +167,7 @@ fn extremely_small_volume() {
     let params =
         ExponentialParameters::from_incremental_volume(initial_rate, decline_rate, tiny_volume)
             .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"0.00000000000100000000000005");
+    assert_sig_snapshot!(params.incremental_duration().years, @"0.000000000001");
 }
 
 #[test]
@@ -180,7 +179,7 @@ fn incline_large_volume() {
     let params =
         ExponentialParameters::from_incremental_volume(initial_rate, decline_rate, large_volume)
             .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"69.0875477931522");
+    assert_sig_snapshot!(params.incremental_duration().years, @"69.0875477932");
 }
 
 #[test]
@@ -262,7 +261,7 @@ fn zero_volume() {
     let decline_rate = NominalDeclineRate::<AverageYearsTime>::new(0.1);
     let params =
         ExponentialParameters::from_incremental_volume(initial_rate, decline_rate, 0.).unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"0");
+    assert_sig_snapshot!(params.incremental_duration().years, @"0");
 }
 
 #[test]
@@ -274,7 +273,7 @@ fn zero_duration() {
         ExponentialParameters::from_incremental_duration(initial_rate, decline_rate, zero_time)
             .unwrap();
     let volume = params.incremental_volume();
-    insta::assert_snapshot!(volume, @"0");
+    assert_sig_snapshot!(volume, @"0");
 }
 
 #[test]
@@ -286,7 +285,7 @@ fn final_rate_roundtrip() {
         ExponentialParameters::from_final_rate(initial_rate, decline_rate, target_final_rate)
             .unwrap();
     let actual_final_rate = params.final_rate().value();
-    insta::assert_snapshot!(actual_final_rate, @"50");
+    assert_sig_snapshot!(actual_final_rate, @"50");
 }
 
 #[test]
@@ -309,7 +308,7 @@ fn duration_range() {
         decline_rate,
         reasonable_duration,
     );
-    insta::assert_snapshot!(result.unwrap().incremental_duration().years, @"100");
+    assert_sig_snapshot!(result.unwrap().incremental_duration().years, @"100");
 }
 
 #[test]

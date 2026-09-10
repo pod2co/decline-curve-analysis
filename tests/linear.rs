@@ -1,5 +1,5 @@
 mod common;
-use common::assert_solved;
+use common::{assert_sig_snapshot, assert_solved};
 use decline_curve_analysis::{
     AverageDaysTime, AverageYearsTime, LinearParameters, NominalDeclineRate, ProductionRate,
 };
@@ -20,7 +20,7 @@ fn linear_from_incremental_duration() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"1461");
+    assert_sig_snapshot!(calculated_duration, @"1461");
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn linear_from_incremental_volume() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"1461");
+    assert_sig_snapshot!(calculated_duration, @"1461");
 
     // Try with a positive initial decline rate to ensure we can reach the same point in time. This
     // ensures we handle both positive and negative decline rates.
@@ -55,7 +55,7 @@ fn linear_from_incremental_volume() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"1461");
+    assert_sig_snapshot!(calculated_duration, @"1461");
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn linear_from_final_rate() {
             .incremental_duration()
             .days;
 
-    insta::assert_snapshot!(calculated_duration, @"1461");
+    assert_sig_snapshot!(calculated_duration, @"1461");
 }
 
 #[test]
@@ -87,10 +87,10 @@ fn linear_incremental_volume_at_time() {
     .unwrap();
 
     // Calculate past the end to check the total.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 1470. }), @"43830");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 1470. }), @"43830");
 
     // Check a point somewhere in the middle.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 1470. }), @"29354.722792607805");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 1470. }), @"29354.7227926");
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn linear_final_rate() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.final_rate().value(), @"10.000000000000004");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"10");
 }
 
 #[test]
@@ -135,9 +135,9 @@ fn zero_initial_decline_rate_is_a_flat_segment() {
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, volume)
             .unwrap();
 
-    insta::assert_snapshot!(params.incremental_duration().days, @"10");
-    insta::assert_snapshot!(params.final_rate().value(), @"100");
-    insta::assert_snapshot!(params.incremental_volume(), @"1000");
+    assert_sig_snapshot!(params.incremental_duration().days, @"10");
+    assert_sig_snapshot!(params.final_rate().value(), @"100");
+    assert_sig_snapshot!(params.incremental_volume(), @"1000");
 
     let params = LinearParameters::from_incremental_duration(
         initial_rate,
@@ -146,8 +146,8 @@ fn zero_initial_decline_rate_is_a_flat_segment() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(params.rate_at_time(AverageDaysTime { days: 5. }).value(), @"100");
-    insta::assert_snapshot!(params.incremental_volume(), @"1000");
+    assert_sig_snapshot!(params.rate_at_time(AverageDaysTime { days: 5. }).value(), @"100");
+    assert_sig_snapshot!(params.incremental_volume(), @"1000");
 }
 
 #[test]
@@ -158,8 +158,8 @@ fn zero_duration_from_zero_volume() {
     let result = LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, 0.);
 
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"0");
-    insta::assert_snapshot!(params.incremental_volume(), @"0");
+    assert_sig_snapshot!(params.incremental_duration().days, @"0");
+    assert_sig_snapshot!(params.incremental_volume(), @"0");
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn zero_duration_from_extremely_small_volume() {
 
     let result =
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, tiny_volume);
-    insta::assert_snapshot!(result.unwrap().incremental_duration().days, @"0");
+    assert_sig_snapshot!(result.unwrap().incremental_duration().days, @"0");
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn large_rate_and_volume() {
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, volume);
 
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"70.02271045856543");
+    assert_sig_snapshot!(params.incremental_duration().days, @"70.0227104586");
 }
 
 #[test]
@@ -224,8 +224,8 @@ fn zero_duration() {
         LinearParameters::from_incremental_duration(initial_rate, initial_decline_rate, zero_time);
 
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"0");
-    insta::assert_snapshot!(params.incremental_volume(), @"0");
+    assert_sig_snapshot!(params.incremental_duration().days, @"0");
+    assert_sig_snapshot!(params.incremental_volume(), @"0");
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn incline_from_volume() {
     let result =
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, volume);
 
-    insta::assert_snapshot!(result.unwrap().incremental_duration().days, @"10");
+    assert_sig_snapshot!(result.unwrap().incremental_duration().days, @"10");
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn incline_from_small_volume() {
     let result =
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, volume);
 
-    insta::assert_snapshot!(result.unwrap().incremental_duration().days, @"0.9950493836207795");
+    assert_sig_snapshot!(result.unwrap().incremental_duration().days, @"0.995049383621");
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn linear_from_final_rate_roundtrip() {
         LinearParameters::from_final_rate(initial_rate, initial_decline_rate, target_final_rate)
             .unwrap();
 
-    insta::assert_snapshot!(params.final_rate().value(), @"50");
+    assert_sig_snapshot!(params.final_rate().value(), @"50");
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn precision_loss_in_duration_calculation() {
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, tiny_volume)
             .unwrap();
 
-    insta::assert_snapshot!(params.incremental_duration().days, @"0.000000000000001");
+    assert_sig_snapshot!(params.incremental_duration().days, @"0.000000000000001");
     assert_solved(params.incremental_volume(), tiny_volume);
 }
 
@@ -325,7 +325,7 @@ fn discriminant_near_zero() {
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, volume);
 
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"99.98585786436196");
+    assert_sig_snapshot!(params.incremental_duration().days, @"99.9858578644");
 }
 
 #[test]
@@ -400,7 +400,7 @@ fn incline_from_duration() {
 
     let result =
         LinearParameters::from_incremental_duration(initial_rate, initial_decline_rate, duration);
-    insta::assert_snapshot!(result.unwrap().final_rate().value(), @"150");
+    assert_sig_snapshot!(result.unwrap().final_rate().value(), @"150");
 }
 
 #[test]
@@ -413,10 +413,10 @@ fn incline_large_volume() {
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, volume);
 
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"1317.7446878757826");
+    assert_sig_snapshot!(params.incremental_duration().days, @"1317.74468788");
 
     let computed_volume = params.incremental_volume();
-    insta::assert_snapshot!(computed_volume, @"1000000.0000000001");
+    assert_sig_snapshot!(computed_volume, @"1000000");
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn incline_from_final_rate() {
     let final_rate = ProductionRate::<AverageDaysTime>::new(200.);
 
     let result = LinearParameters::from_final_rate(initial_rate, initial_decline_rate, final_rate);
-    insta::assert_snapshot!(result.unwrap().incremental_duration().days, @"20");
+    assert_sig_snapshot!(result.unwrap().incremental_duration().days, @"20");
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn incline_with_extremely_small_duration() {
     let result =
         LinearParameters::from_incremental_volume(initial_rate, initial_decline_rate, tiny_volume);
     let params = result.unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"0.0000000000009999999999999996");
+    assert_sig_snapshot!(params.incremental_duration().days, @"0.000000000001");
     assert_solved(params.incremental_volume(), tiny_volume);
 }
 
@@ -578,18 +578,18 @@ fn linear_solving_equal_cutoffs_gives_a_flat_segment() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(solved.initial_decline_rate().value(), @"0");
-    insta::assert_snapshot!(solved.final_rate().value(), @"50");
-    insta::assert_snapshot!(solved.incremental_volume(), @"500");
+    assert_sig_snapshot!(solved.initial_decline_rate().value(), @"0");
+    assert_sig_snapshot!(solved.final_rate().value(), @"50");
+    assert_sig_snapshot!(solved.incremental_volume(), @"500");
 
     // With no decline, the volume rather than the final rate is what sets the length.
     let solved =
         LinearParameters::from_final_rate_and_incremental_volume(initial_rate, initial_rate, 500.)
             .unwrap();
 
-    insta::assert_snapshot!(solved.initial_decline_rate().value(), @"0");
-    insta::assert_snapshot!(solved.incremental_duration().days, @"10");
-    insta::assert_snapshot!(solved.final_rate().value(), @"50");
+    assert_sig_snapshot!(solved.initial_decline_rate().value(), @"0");
+    assert_sig_snapshot!(solved.incremental_duration().days, @"10");
+    assert_sig_snapshot!(solved.final_rate().value(), @"50");
 }
 
 #[test]
@@ -602,8 +602,8 @@ fn linear_solving_near_flat_cutoffs_gives_a_flat_segment() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(solved.incremental_duration().days, @"10");
-    insta::assert_snapshot!(solved.initial_decline_rate().value(), @"0");
+    assert_sig_snapshot!(solved.incremental_duration().days, @"10");
+    assert_sig_snapshot!(solved.initial_decline_rate().value(), @"0");
 }
 
 #[test]
