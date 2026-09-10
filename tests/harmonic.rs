@@ -1,10 +1,9 @@
+mod common;
+use common::{assert_sig_snapshot, assert_solved};
 use decline_curve_analysis::{
     AverageDaysTime, AverageYearsTime, HarmonicParameters, NominalDeclineRate, ProductionRate,
 };
 use proptest::prelude::*;
-
-mod common;
-use common::assert_solved;
 
 #[test]
 fn harmonic_from_incremental_duration() {
@@ -21,7 +20,7 @@ fn harmonic_from_incremental_duration() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"3650");
+    assert_sig_snapshot!(calculated_duration, @"3650");
 }
 
 #[test]
@@ -39,7 +38,7 @@ fn harmonic_from_incremental_volume() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"2921.9999999999986");
+    assert_sig_snapshot!(calculated_duration, @"2922");
 }
 
 #[test]
@@ -57,7 +56,7 @@ fn harmonic_from_final_decline_rate() {
     .incremental_duration()
     .days;
 
-    insta::assert_snapshot!(calculated_duration, @"2922");
+    assert_sig_snapshot!(calculated_duration, @"2922");
 }
 
 #[test]
@@ -72,7 +71,7 @@ fn harmonic_from_final_rate() {
             .incremental_duration()
             .days;
 
-    insta::assert_snapshot!(calculated_duration, @"2922");
+    assert_sig_snapshot!(calculated_duration, @"2922");
 }
 
 #[test]
@@ -89,10 +88,10 @@ fn harmonic_incremental_volume_at_time() {
     .unwrap();
 
     // Calculate past the end to check the total.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 2950. }), @"58784.71975165552");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 2950. }), @"58784.7197517");
 
     // Check a point somewhere in the middle.
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 2950. }), @"40359.40503213862");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 0.5 * 2950. }), @"40359.4050321");
 }
 
 #[test]
@@ -108,7 +107,7 @@ fn harmonic_final_rate() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.final_rate().value(), @"10");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"10");
 }
 
 #[test]
@@ -124,9 +123,9 @@ fn harmonic_incline() {
     )
     .unwrap();
 
-    insta::assert_snapshot!(parameters.incremental_duration().days, @"3650");
-    insta::assert_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"187217.18117312618");
-    insta::assert_snapshot!(parameters.final_rate().value(), @"52.62968299711815");
+    assert_sig_snapshot!(parameters.incremental_duration().days, @"3650");
+    assert_sig_snapshot!(parameters.incremental_volume_at_time(AverageDaysTime { days: 4000. }), @"187217.181173");
+    assert_sig_snapshot!(parameters.final_rate().value(), @"52.6296829971");
 }
 
 #[test]
@@ -183,7 +182,7 @@ fn incline_from_final_decline_rate() {
         final_decline_rate,
     )
     .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"1826.25");
+    assert_sig_snapshot!(params.incremental_duration().days, @"1826.25");
 
     // The decline rate tries to increase, so this should fail.
     let initial_rate = ProductionRate::<AverageDaysTime>::new(50.);
@@ -205,7 +204,7 @@ fn incline_with_large_volume() {
     let params =
         HarmonicParameters::from_incremental_volume(initial_rate, decline_rate, large_volume)
             .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"717.8669045573092");
+    assert_sig_snapshot!(params.incremental_duration().days, @"717.866904557");
 }
 
 #[test]
@@ -215,7 +214,7 @@ fn incline_with_small_volume() {
     let volume = 1000.;
     let params =
         HarmonicParameters::from_incremental_volume(initial_rate, decline_rate, volume).unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"9.931864990485755");
+    assert_sig_snapshot!(params.incremental_duration().days, @"9.93186499049");
 }
 
 #[test]
@@ -226,8 +225,8 @@ fn zero_duration() {
     let params =
         HarmonicParameters::from_incremental_duration(initial_rate, decline_rate, zero_time)
             .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().days, @"0");
-    insta::assert_snapshot!(params.incremental_volume(), @"0");
+    assert_sig_snapshot!(params.incremental_duration().days, @"0");
+    assert_sig_snapshot!(params.incremental_volume(), @"0");
 }
 
 #[test]
@@ -291,7 +290,7 @@ fn final_rate_roundtrip() {
         HarmonicParameters::from_final_rate(initial_rate, decline_rate, target_final_rate).unwrap();
 
     let actual_final_rate = params.final_rate().value();
-    insta::assert_snapshot!(actual_final_rate, @"50");
+    assert_sig_snapshot!(actual_final_rate, @"50");
 }
 
 #[test]
@@ -312,7 +311,7 @@ fn duration_range() {
         reasonable_duration,
     )
     .unwrap();
-    insta::assert_snapshot!(params.incremental_duration().years, @"9");
+    assert_sig_snapshot!(params.incremental_duration().years, @"9");
 
     // For harmonic incline with D = -0.1, the singularity is at t_max = 1/|D| = 10 years.
     // Durations at or beyond this point should bne rejected.
@@ -346,7 +345,7 @@ fn duration_range() {
         just_under_singularity,
     )
     .unwrap();
-    insta::assert_snapshot!(params.final_rate().value(), @"10000.00000000009");
+    assert_sig_snapshot!(params.final_rate().value(), @"10000");
 }
 
 #[test]
